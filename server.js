@@ -448,8 +448,22 @@ async function handle(req, res) {
 async function start() {
   dummyHash = await scrypt(crypto.randomBytes(32), dummySalt, 64);
   if (database.prepare("SELECT COUNT(*) AS count FROM users").get().count === 0 && !bootstrapToken) {
-    bootstrapToken = crypto.randomBytes(24).toString("base64url");
-    console.log("One-time administrator setup code (keep private):", bootstrapToken);
+    const adminFullName = String(process.env.ADMIN_FULL_NAME || "").trim();
+    const adminUsername = String(process.env.ADMIN_USERNAME || "").trim();
+    const adminPassword = String(process.env.ADMIN_PASSWORD || "");
+
+    if (adminFullName && /^[a-zA-Z0-9._-]{3,32}$/.test(adminUsername) &&
+        adminPassword.length >= 12 && adminPassword.length <= 128 &&
+        adminFullName.length <= 80) {
+      const salt = crypto.randomBytes(16);
+      const passwordHash = await scrypt(adminPassword, salt, 64);
+      database.prepare("INSERT INTO users(username, password_hash, salt, role, status, full_name) VALUES (?, ?, ?, 'admin', 'active', ?)")
+        .run(adminUsername, passwordHash, salt, adminFullName);
+      console.log(`Administrator '${adminUsername}' created from environment variables.`);
+    } else {
+      bootstrapToken = process.env.ADMIN_SETUP_TOKEN || crypto.randomBytes(24).toString("base64url");
+      console.log("One-time administrator setup code (keep private):", bootstrapToken);
+    }
   }
   if (process.env.NODE_ENV === "production" && process.env.COOKIE_SECURE !== "true") {
     throw new Error("COOKIE_SECURE=true is required in production. Serve the app behind HTTPS.");

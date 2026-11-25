@@ -74,6 +74,9 @@ Deploy this as one Node.js web service; do not deploy the frontend separately to
   - `NODE_ENV=production`
   - `COOKIE_SECURE=true`
   - `PORTAL_DB_PATH=/data/hospital_portal.sqlite`
+  - `ADMIN_FULL_NAME=<your full name>`
+  - `ADMIN_USERNAME=<your admin username>`
+  - `ADMIN_PASSWORD=<a secret password of at least 12 characters>`
 
 Render supplies `PORT`; do not set it to a fixed value. Attach a persistent disk mounted at `/data` so SQLite accounts and records survive service restarts and redeploys. The disk must be available to the service plan you select. After deploying, use the public HTTPS URL Render assigns to open the login portal from any device.
 

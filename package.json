@@ -4,7 +4,8 @@
   "private": true,
   "description": "Server-backed AA.MITS Hospital Management Portal",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "seed:admin": "node seed-admin.js"
   },
   "engines": {
     "node": ">=22.13.0"
