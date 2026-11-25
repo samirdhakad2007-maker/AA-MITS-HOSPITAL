@@ -1,0 +1,12 @@
+{
+  "name": "aa-mits-hospital-portal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Server-backed AA.MITS Hospital Management Portal",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  }
+}
