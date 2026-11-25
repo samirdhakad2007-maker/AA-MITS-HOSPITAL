@@ -5,6 +5,11 @@ services:
     plan: free
     buildCommand: npm install
     startCommand: node server.js
+    healthCheckPath: /healthz
+    disk:
+      name: aa-mits-data
+      mountPath: /data
+      sizeGB: 1
     envVars:
       - key: HOST
         value: 0.0.0.0
@@ -12,3 +17,5 @@ services:
         value: production
       - key: COOKIE_SECURE
         value: "true"
+      - key: PORTAL_DB_PATH
+        value: /data/hospital_portal.sqlite
