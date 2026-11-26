@@ -10,7 +10,7 @@ const envFile = path.join(__dirname, ".env");
 if (fs.existsSync(envFile)) process.loadEnvFile(envFile);
 
 const scrypt = promisify(crypto.scrypt);
-const databasePath = path.resolve(process.env.PORTAL_DB_PATH || path.join(__dirname, "hospital_portal.sqlite"));
+const databasePath = path.resolve(__dirname, process.env.DB_PATH || "hospital_portal.sqlite");
 const fullName = String(process.env.ADMIN_FULL_NAME || "").trim();
 const username = String(process.env.ADMIN_USERNAME || "").trim();
 const password = String(process.env.ADMIN_PASSWORD || "");

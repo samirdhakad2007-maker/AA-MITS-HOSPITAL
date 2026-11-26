@@ -1,26 +1,25 @@
 "use strict";
 
-const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { promisify } = require("node:util");
 const { DatabaseSync } = require("node:sqlite");
+const express = require("express");
 
 const envFile = path.join(__dirname, ".env");
 if (fs.existsSync(envFile)) process.loadEnvFile(envFile);
 
 const scrypt = promisify(crypto.scrypt);
-const databasePath = path.resolve(process.env.PORTAL_DB_PATH || path.join(__dirname, "hospital_portal.sqlite"));
+const databasePath = path.resolve(__dirname, process.env.DB_PATH || "hospital_portal.sqlite");
 const database = new DatabaseSync(databasePath);
-const PORT = Number(process.env.PORT || 4173);
-const HOST = process.env.HOST || "127.0.0.1";
+const PORT = Number(process.env.PORT || 3000);
+const HOST = process.env.HOST || "0.0.0.0";
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const RATE_WINDOW_MS = 15 * 60 * 1000;
 const rateLimits = new Map();
 const dummySalt = crypto.randomBytes(16);
 let dummyHash;
-let bootstrapToken = process.env.ADMIN_SETUP_TOKEN || null;
 
 const modules = {
   patients: [["name", "text"], ["age", "integer"], ["gender", "text"], ["phone", "text"], ["address", "text"]],
@@ -257,11 +256,13 @@ function toRecord(row) {
 
 async function handle(req, res) {
   setSecurityHeaders(res);
-  const url = new URL(req.url, "http://localhost");
-  const route = url.pathname;
+  const route = req.path;
   const method = req.method;
 
   if (method === "GET" && route === "/healthz") {
+    return sendJson(res, 200, { status: "ok" });
+  }
+  if (method === "GET" && route === "/api/health") {
     return sendJson(res, 200, { status: "ok" });
   }
 
@@ -274,7 +275,7 @@ async function handle(req, res) {
     return sendJson(res, 200, { setupRequired: count === 0 });
   }
 
-  if (method === "POST" && ["/api/setup", "/api/signup", "/api/login"].includes(route)) {
+  if (method === "POST" && ["/api/signup", "/api/login"].includes(route)) {
     if (!checkRateLimit(req, res, route)) return;
     if (!requireSameOrigin(req)) return fail(res, 403, "Request origin was not accepted.");
     if (!String(req.headers["content-type"] || "").startsWith("application/json")) {
@@ -284,36 +285,6 @@ async function handle(req, res) {
     const credentials = validateCredentials(body, route !== "/api/login");
     if (credentials.error) return fail(res, 400, credentials.error);
     const { username, password, fullName } = credentials;
-
-    if (route === "/api/setup") {
-      const providedToken = typeof body.setupToken === "string" ? Buffer.from(body.setupToken) : Buffer.alloc(0);
-      const expectedToken = Buffer.from(bootstrapToken || "");
-      const tokenMatches = bootstrapToken && providedToken.length === expectedToken.length &&
-        crypto.timingSafeEqual(providedToken, expectedToken);
-      if (!tokenMatches) {
-        return fail(res, 403, "The one-time administrator setup code is invalid.");
-      }
-      database.exec("BEGIN IMMEDIATE");
-      try {
-        if (database.prepare("SELECT COUNT(*) AS count FROM users").get().count !== 0) {
-          database.exec("ROLLBACK");
-          return fail(res, 409, "Initial administrator setup is already complete.");
-        }
-        const salt = crypto.randomBytes(16);
-        const passwordHash = await scrypt(password, salt, 64);
-        const result = database.prepare("INSERT INTO users(username, password_hash, salt, role, status, full_name) VALUES (?, ?, ?, 'admin', 'active', ?)")
-          .run(username, passwordHash, salt, fullName);
-        database.exec("COMMIT");
-        const user = { id: Number(result.lastInsertRowid), username, fullName, role: "admin", status: "active" };
-        createSession(user, res);
-        bootstrapToken = null;
-        return sendJson(res, 201, { user: publicUser(user) });
-      } catch (error) {
-        database.exec("ROLLBACK");
-        if (error.code === "SQLITE_CONSTRAINT_UNIQUE") return fail(res, 409, "That username is already in use.");
-        throw error;
-      }
-    }
 
     if (route === "/api/signup") {
       if (database.prepare("SELECT COUNT(*) AS count FROM users").get().count === 0) {
@@ -429,56 +400,86 @@ async function handle(req, res) {
 
   if (route.startsWith("/api/")) return fail(res, 404, "API route not found.");
   if (method !== "GET") return fail(res, 405, "Method not allowed.");
-  const files = {
-    "/": ["index.html", "text/html; charset=utf-8"],
-    "/index.html": ["index.html", "text/html; charset=utf-8"],
-    "/portal.js": ["portal.js", "text/javascript; charset=utf-8"],
-    "/hospital-login.png": ["hospital-login.png", "image/png"]
-  };
-  const file = files[route];
-  if (!file) return fail(res, 404, "Page not found.");
-  res.writeHead(200, {
-    "Content-Type": file[1],
-    "Cache-Control": "no-store",
-    "Content-Length": fs.statSync(path.join(__dirname, file[0])).size
+  return fail(res, 404, "Page not found.");
+}
+
+function seedDemoRecord(module, record) {
+  const existing = database.prepare("SELECT 1 FROM records WHERE module = ? LIMIT 1").get(module);
+  if (existing) return;
+  database.prepare("INSERT INTO records(module, data) VALUES (?, ?)").run(module, JSON.stringify(record));
+}
+
+async function seedEmptyDatabase() {
+  if (database.prepare("SELECT COUNT(*) AS count FROM users").get().count === 0) {
+    const adminSettings = ["ADMIN_FULL_NAME", "ADMIN_USERNAME", "ADMIN_PASSWORD"]
+      .map(key => String(process.env[key] || "").trim());
+    const configured = adminSettings.some(Boolean);
+    if (configured && adminSettings.some(value => !value)) {
+      throw new Error("Set all of ADMIN_FULL_NAME, ADMIN_USERNAME, and ADMIN_PASSWORD, or leave all three empty.");
+    }
+    const adminFullName = String(process.env.ADMIN_FULL_NAME || "Demo Administrator").trim();
+    const adminUsername = String(process.env.ADMIN_USERNAME || "demo_admin").trim();
+    const adminPassword = process.env.ADMIN_PASSWORD || crypto.randomBytes(18).toString("base64url");
+
+    if (!/^[a-zA-Z0-9._-]{3,32}$/.test(adminUsername) ||
+        !adminFullName || adminFullName.length > 80 ||
+        adminPassword.length < 12 || adminPassword.length > 128) {
+      throw new Error("Set valid ADMIN_FULL_NAME, ADMIN_USERNAME, and ADMIN_PASSWORD values.");
+    }
+
+    const salt = crypto.randomBytes(16);
+    const passwordHash = await scrypt(adminPassword, salt, 64);
+    database.prepare("INSERT INTO users(username, password_hash, salt, role, status, full_name) VALUES (?, ?, ?, 'admin', 'active', ?)")
+      .run(adminUsername, passwordHash, salt, adminFullName);
+    if (!configured) {
+      console.warn(`Generated demo administrator credentials. Username: ${adminUsername}; Password: ${adminPassword}`);
+    } else {
+      console.log(`Administrator '${adminUsername}' created from environment variables.`);
+    }
+  }
+
+  seedDemoRecord("patients", {
+    name: "Demo Patient",
+    age: 35,
+    gender: "Other",
+    phone: "000-000-0000",
+    address: "Demo Address"
   });
-  fs.createReadStream(path.join(__dirname, file[0])).pipe(res);
+  seedDemoRecord("doctors", {
+    name: "Demo Doctor",
+    specialization: "General Medicine",
+    phone: "000-000-0000"
+  });
 }
 
 async function start() {
   dummyHash = await scrypt(crypto.randomBytes(32), dummySalt, 64);
-  if (database.prepare("SELECT COUNT(*) AS count FROM users").get().count === 0 && !bootstrapToken) {
-    const adminFullName = String(process.env.ADMIN_FULL_NAME || "").trim();
-    const adminUsername = String(process.env.ADMIN_USERNAME || "").trim();
-    const adminPassword = String(process.env.ADMIN_PASSWORD || "");
-
-    if (adminFullName && /^[a-zA-Z0-9._-]{3,32}$/.test(adminUsername) &&
-        adminPassword.length >= 12 && adminPassword.length <= 128 &&
-        adminFullName.length <= 80) {
-      const salt = crypto.randomBytes(16);
-      const passwordHash = await scrypt(adminPassword, salt, 64);
-      database.prepare("INSERT INTO users(username, password_hash, salt, role, status, full_name) VALUES (?, ?, ?, 'admin', 'active', ?)")
-        .run(adminUsername, passwordHash, salt, adminFullName);
-      console.log(`Administrator '${adminUsername}' created from environment variables.`);
-    } else {
-      bootstrapToken = process.env.ADMIN_SETUP_TOKEN || crypto.randomBytes(24).toString("base64url");
-      console.log("One-time administrator setup code (keep private):", bootstrapToken);
-    }
-  }
+  await seedEmptyDatabase();
   if (process.env.NODE_ENV === "production" && process.env.COOKIE_SECURE !== "true") {
     throw new Error("COOKIE_SECURE=true is required in production. Serve the app behind HTTPS.");
   }
   database.prepare("DELETE FROM sessions WHERE expires_at <= ?").run(Date.now());
-  const server = http.createServer((req, res) => {
+
+  const app = express();
+  app.disable("x-powered-by");
+  app.use((req, res, next) => {
+    setSecurityHeaders(res);
+    next();
+  });
+  app.use(express.static(path.join(__dirname, "client"), {
+    dotfiles: "deny",
+    index: "index.html"
+  }));
+  app.use((req, res) => {
     handle(req, res).catch(error => {
       console.error("Request failed:", error);
       if (!res.headersSent) fail(res, error.status || 500, error.status ? error.message : "The request could not be completed.");
       else res.destroy();
     });
   });
-  server.listen(PORT, HOST, () => {
+
+  app.listen(PORT, HOST, () => {
     console.log(`AA.MITS HOSPITAL portal listening at http://${HOST}:${PORT}`);
-    console.log("Do not expose this development server directly to the internet; use an HTTPS reverse proxy.");
   });
 }
 
