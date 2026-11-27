@@ -78,7 +78,7 @@ function renderAuth(message = "") {
   const description = isSetup
     ? "Create the first administrator account. Use the one-time setup code shown in the server console."
     : isSignup
-      ? "Create a personal account. An administrator must approve it before you can sign in."
+      ? "Create a personal account and sign in as soon as it is created."
       : "Sign in with your AA.MITS HOSPITAL account.";
   authRoot.innerHTML = `<main class="auth-screen"><section class="auth-card">
     <div class="auth-brand"><span class="brand-mark">+</span><span>AA.MITS HOSPITAL</span></div>
@@ -89,11 +89,11 @@ function renderAuth(message = "") {
       <label>Username<input name="username" type="text" minlength="3" maxlength="32" pattern="[a-zA-Z0-9._-]{3,32}" autocomplete="username" required></label>
       <label>Password<input name="password" type="password" minlength="12" maxlength="128" autocomplete="${isSignup || isSetup ? "new-password" : "current-password"}" required></label>
       ${isSignup ? '<label>Confirm password<input name="confirmPassword" type="password" minlength="12" maxlength="128" autocomplete="new-password" required></label>' : ""}
-      <button class="primary" type="submit">${isSetup ? "Create administrator" : isSignup ? "Request account" : "Sign in"}</button>
+      <button class="primary" type="submit">${isSetup ? "Create administrator" : isSignup ? "Create account" : "Sign in"}</button>
     </form>
     <div class="auth-message" id="auth-message" role="status">${escapeHtml(message)}</div>
     ${isSetup ? "" : `<p class="auth-switch">${isSignup ? 'Already have an account?' : "Need an account?"} <button class="text-button" type="button" data-auth-mode="${isSignup ? "login" : "signup"}">${isSignup ? "Sign in" : "Sign up"}</button></p>`}
-    ${isSignup ? "" : '<p class="auth-hint">Passwords must be at least 12 characters. New accounts remain pending until an administrator approves them.</p>'}
+    ${isSignup ? "" : '<p class="auth-hint">Passwords must be at least 12 characters.</p>'}
   </section></main>`;
 }
 
@@ -244,12 +244,12 @@ function renderModule(moduleKey) {
 
 async function renderUsers() {
   const content = document.getElementById("content");
-  content.innerHTML = `<div class="page-heading"><div><h1>User accounts</h1><p class="subtitle">Approve sign-up requests before they can access hospital information.</p></div></div><section class="panel"><div class="empty">Loading accounts…</div></section>`;
+  content.innerHTML = `<div class="page-heading"><div><h1>User accounts</h1><p class="subtitle">View the accounts registered in the portal.</p></div></div><section class="panel"><div class="empty">Loading accounts…</div></section>`;
   const result = await api("/api/admin/users");
-  content.innerHTML = `<div class="page-heading"><div><h1>User accounts</h1><p class="subtitle">Approve sign-up requests before they can access hospital information.</p></div></div>
-    <section class="panel"><div class="table-wrap"><table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th>Created</th><th>Action</th></tr></thead><tbody>${result.users.map(account =>
-      `<tr><td>${escapeHtml(account.fullName || account.username)}</td><td>${escapeHtml(account.username)}</td><td>${escapeHtml(account.role)}</td><td><span class="${statusClass(account.status)}">${escapeHtml(account.status)}</span></td><td>${escapeHtml(account.createdAt)}</td><td>${account.status === "pending" ? `<button class="mini-button" data-approve-user="${account.id}">Approve</button>` : "—"}</td></tr>`
-    ).join("") || '<tr><td colspan="6" class="empty">No accounts found.</td></tr>'}</tbody></table></div></section>`;
+  content.innerHTML = `<div class="page-heading"><div><h1>User accounts</h1><p class="subtitle">View the accounts registered in the portal.</p></div></div>
+    <section class="panel"><div class="table-wrap"><table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Created</th></tr></thead><tbody>${result.users.map(account =>
+      `<tr><td>${escapeHtml(account.fullName || account.username)}</td><td>${escapeHtml(account.username)}</td><td>${escapeHtml(account.role)}</td><td>${escapeHtml(account.createdAt)}</td></tr>`
+    ).join("") || '<tr><td colspan="4" class="empty">No accounts found.</td></tr>'}</tbody></table></div></section>`;
 }
 
 function render() {
@@ -366,15 +366,6 @@ document.addEventListener("click", async event => {
       showToast("Record deleted");
     } catch (error) { showToast(error.message); }
     return;
-  }
-  const approve = event.target.closest("[data-approve-user]");
-  if (approve) {
-    approve.disabled = true;
-    try {
-      await api(`/api/admin/users/${Number(approve.dataset.approveUser)}/approve`, { method: "POST" });
-      await renderUsers();
-      showToast("User approved");
-    } catch (error) { showToast(error.message); approve.disabled = false; }
   }
 });
 

@@ -62,6 +62,7 @@ if (!database.prepare("PRAGMA table_info(users)").all().some(column => column.na
   database.exec("ALTER TABLE users ADD COLUMN full_name TEXT NOT NULL DEFAULT ''");
 }
 database.prepare("UPDATE users SET full_name = username WHERE full_name = ''").run();
+database.prepare("UPDATE users SET status = 'active' WHERE status = 'pending'").run();
 
 function hashToken(token) {
   return crypto.createHash("sha256").update(token).digest("hex");
@@ -177,8 +178,7 @@ function publicUser(user) {
     id: user.id,
     username: user.username,
     fullName: user.full_name || user.fullName || user.username,
-    role: user.role,
-    status: user.status
+    role: user.role
   };
 }
 
@@ -187,11 +187,11 @@ function currentUser(req) {
   if (!token || token.length > 100) return null;
   const tokenHash = hashToken(token);
   const session = database.prepare(`
-    SELECT users.id, users.username, users.full_name, users.role, users.status
+    SELECT users.id, users.username, users.full_name, users.role
     FROM sessions JOIN users ON users.id = sessions.user_id
     WHERE sessions.token_hash = ? AND sessions.expires_at > ?
   `).get(tokenHash, Date.now());
-  if (!session || session.status !== "active") return null;
+  if (!session) return null;
   return session;
 }
 
@@ -293,13 +293,13 @@ async function handle(req, res) {
       const salt = crypto.randomBytes(16);
       const passwordHash = await scrypt(password, salt, 64);
       try {
-        database.prepare("INSERT INTO users(username, password_hash, salt, role, status, full_name) VALUES (?, ?, ?, 'user', 'pending', ?)")
+        database.prepare("INSERT INTO users(username, password_hash, salt, role, status, full_name) VALUES (?, ?, ?, 'user', 'active', ?)")
           .run(username, passwordHash, salt, fullName);
       } catch (error) {
         if (error.code === "SQLITE_CONSTRAINT_UNIQUE") return fail(res, 409, "That username is already in use.");
         throw error;
       }
-      return sendJson(res, 201, { message: "Account created. An administrator must approve it before you can sign in." });
+      return sendJson(res, 201, { message: "Account created. You can now sign in." });
     }
 
     const user = database.prepare("SELECT id, username, full_name, role, status, password_hash, salt FROM users WHERE username = ?").get(username);
@@ -307,8 +307,8 @@ async function handle(req, res) {
     const salt = user ? Buffer.from(user.salt) : dummySalt;
     const candidateHash = await scrypt(password, salt, expectedHash.length);
     const passwordMatches = crypto.timingSafeEqual(candidateHash, expectedHash);
-    if (!user || !passwordMatches || user.status !== "active") {
-      return fail(res, 401, "Username or password is incorrect, or the account is awaiting approval.");
+    if (!user || !passwordMatches) {
+      return fail(res, 401, "Username or password is incorrect.");
     }
     createSession(user, res);
     return sendJson(res, 200, { user: publicUser(user) });
@@ -346,18 +346,9 @@ async function handle(req, res) {
   if (route === "/api/admin/users") {
     if (user.role !== "admin") return fail(res, 403, "Administrator access is required.");
     if (method === "GET") {
-      const users = database.prepare("SELECT id, username, full_name AS fullName, role, status, created_at AS createdAt FROM users ORDER BY id").all();
+      const users = database.prepare("SELECT id, username, full_name AS fullName, role, created_at AS createdAt FROM users ORDER BY id").all();
       return sendJson(res, 200, { users });
     }
-  }
-  const approvalMatch = route.match(/^\/api\/admin\/users\/(\d+)\/approve$/);
-  if (approvalMatch && method === "POST") {
-    if (user.role !== "admin") return fail(res, 403, "Administrator access is required.");
-    if (!requireSameOrigin(req)) return fail(res, 403, "Request origin was not accepted.");
-    const result = database.prepare("UPDATE users SET status = 'active' WHERE id = ? AND role = 'user' AND status = 'pending'")
-      .run(Number(approvalMatch[1]));
-    if (!result.changes) return fail(res, 404, "Pending user not found.");
-    return sendJson(res, 200, { ok: true });
   }
 
   const recordRoute = route.match(/^\/api\/([a-z]+)(?:\/(\d+))?$/);
