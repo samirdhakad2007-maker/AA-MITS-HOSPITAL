@@ -401,32 +401,56 @@ function seedDemoRecord(module, record) {
 }
 
 async function seedEmptyDatabase() {
-  if (database.prepare("SELECT COUNT(*) AS count FROM users").get().count === 0) {
-    const adminSettings = ["ADMIN_FULL_NAME", "ADMIN_USERNAME", "ADMIN_PASSWORD"]
-      .map(key => String(process.env[key] || "").trim());
-    const configured = adminSettings.some(Boolean);
-    if (configured && adminSettings.some(value => !value)) {
-      throw new Error("Set all of ADMIN_FULL_NAME, ADMIN_USERNAME, and ADMIN_PASSWORD, or leave all three empty.");
-    }
-    const adminFullName = String(process.env.ADMIN_FULL_NAME || "Demo Administrator").trim();
-    const adminUsername = String(process.env.ADMIN_USERNAME || "demo_admin").trim();
-    const adminPassword = process.env.ADMIN_PASSWORD || crypto.randomBytes(18).toString("base64url");
+  const adminFullName = String(process.env.ADMIN_FULL_NAME || "").trim();
+  const adminUsername = String(process.env.ADMIN_USERNAME || "").trim();
+  const adminPassword = String(process.env.ADMIN_PASSWORD || "");
+  const configured = Boolean(adminFullName || adminUsername || adminPassword.trim());
+  const userCount = database.prepare("SELECT COUNT(*) AS count FROM users").get().count;
 
+  if (configured && (!adminFullName || !adminUsername || !adminPassword)) {
+    throw new Error("Set all of ADMIN_FULL_NAME, ADMIN_USERNAME, and ADMIN_PASSWORD, or leave all three empty.");
+  }
+
+  if (configured) {
     if (!/^[a-zA-Z0-9._-]{3,32}$/.test(adminUsername) ||
-        !adminFullName || adminFullName.length > 80 ||
+        adminFullName.length > 80 ||
         adminPassword.length < 12 || adminPassword.length > 128) {
       throw new Error("Set valid ADMIN_FULL_NAME, ADMIN_USERNAME, and ADMIN_PASSWORD values.");
     }
 
-    const salt = crypto.randomBytes(16);
-    const passwordHash = await scrypt(adminPassword, salt, 64);
-    database.prepare("INSERT INTO users(username, password_hash, salt, role, status, full_name) VALUES (?, ?, ?, 'admin', 'active', ?)")
-      .run(adminUsername, passwordHash, salt, adminFullName);
-    if (!configured) {
-      console.warn(`Generated demo administrator credentials. Username: ${adminUsername}; Password: ${adminPassword}`);
+    const usernameMatch = database.prepare("SELECT id, username, role, status, full_name, password_hash, salt FROM users WHERE username = ?").get(adminUsername);
+    if (usernameMatch && usernameMatch.role !== "admin") {
+      throw new Error("ADMIN_USERNAME already belongs to a non-administrator account.");
+    }
+    const admin = usernameMatch || database.prepare("SELECT id, username, role, status, full_name, password_hash, salt FROM users WHERE role = 'admin' ORDER BY id LIMIT 1").get();
+    if (admin) {
+      const currentHash = Buffer.from(admin.password_hash);
+      const candidateHash = await scrypt(adminPassword, Buffer.from(admin.salt), currentHash.length);
+      const passwordMatches = crypto.timingSafeEqual(candidateHash, currentHash);
+      const unchanged = admin.username.toLowerCase() === adminUsername.toLowerCase() &&
+        admin.full_name === adminFullName && admin.status === "active" && passwordMatches;
+      if (!unchanged) {
+        const salt = crypto.randomBytes(16);
+        const passwordHash = await scrypt(adminPassword, salt, 64);
+        database.prepare("UPDATE users SET username = ?, password_hash = ?, salt = ?, status = 'active', full_name = ? WHERE id = ?")
+          .run(adminUsername, passwordHash, salt, adminFullName, admin.id);
+        database.prepare("DELETE FROM sessions WHERE user_id = ?").run(admin.id);
+        console.log(`Administrator '${adminUsername}' synchronized from environment variables.`);
+      }
     } else {
+      const salt = crypto.randomBytes(16);
+      const passwordHash = await scrypt(adminPassword, salt, 64);
+      database.prepare("INSERT INTO users(username, password_hash, salt, role, status, full_name) VALUES (?, ?, ?, 'admin', 'active', ?)")
+        .run(adminUsername, passwordHash, salt, adminFullName);
       console.log(`Administrator '${adminUsername}' created from environment variables.`);
     }
+  } else if (userCount === 0) {
+    const demoPassword = crypto.randomBytes(18).toString("base64url");
+    const salt = crypto.randomBytes(16);
+    const passwordHash = await scrypt(demoPassword, salt, 64);
+    database.prepare("INSERT INTO users(username, password_hash, salt, role, status, full_name) VALUES (?, ?, ?, 'admin', 'active', ?)")
+      .run("demo_admin", passwordHash, salt, "Demo Administrator");
+    console.warn(`Generated demo administrator credentials. Username: demo_admin; Password: ${demoPassword}`);
   }
 
   seedDemoRecord("patients", {

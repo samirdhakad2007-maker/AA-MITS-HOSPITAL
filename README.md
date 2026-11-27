@@ -82,6 +82,8 @@ Deploy this as one Node.js web service; do not deploy the frontend separately to
 
 Render supplies `PORT`; do not set it to a fixed value. This free demo deployment uses an ephemeral filesystem, so SQLite accounts and records may be lost after a restart or redeploy; the app reseeds its initial demo account and records when the database is empty. Do not enter real patient information. After deploying, use the public HTTPS URL Render assigns to open the login portal from any device.
 
+To establish or reset administrator credentials, set all three `ADMIN_FULL_NAME`, `ADMIN_USERNAME`, and `ADMIN_PASSWORD` environment variables in Render, then restart or redeploy the service. On startup, the app synchronizes these values to an administrator account and invalidates that administrator's existing sessions if the credentials changed. Never share the administrator password.
+
 There are no `MONGO_URI`, `JWT_SECRET`, `CLIENT_URL`, or `VITE_API_URL` settings in this project: it uses SQLite and same-origin, cookie-based sessions. The C++ console application is separate and is not included in this web deployment.
 
 ### Demo accounts and data
