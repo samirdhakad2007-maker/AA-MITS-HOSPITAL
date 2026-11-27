@@ -8,16 +8,16 @@ const modules = {
     ["name", "Full name"], ["specialization", "Specialization"], ["phone", "Phone"]
   ] },
   appointments: { title: "Appointments", icon: "▣", fields: [
-    ["patientId", "Patient ID", "number"], ["doctorId", "Doctor ID", "number"], ["date", "Date", "date"], ["time", "Time", "time"], ["status", "Status", "select", ["Scheduled", "Completed", "Cancelled"]]
+    ["patientId", "Patient ID", "number"], ["doctorId", "Doctor ID", "number"], ["date", "Date", "date"], ["time", "Time", "time"], ["status", "Appointment status", "select", ["Scheduled", "Completed", "Cancelled"]], ["amount", "Fee (₹)", "number"], ["paymentStatus", "Payment status", "select", ["Unpaid", "Partially paid", "Paid"]], ["paymentMethod", "Payment method", "select", ["Not selected", "Cash", "UPI", "Card", "Insurance"]]
   ] },
   beds: { title: "Rooms & Beds", icon: "▤", fields: [
     ["ward", "Ward"], ["bedNumber", "Bed number"], ["status", "Status", "select", ["Available", "Occupied"]]
   ] },
   bills: { title: "Billing", icon: "＄", fields: [
-    ["patientId", "Patient ID", "number"], ["amount", "Amount", "number"], ["description", "Description"], ["status", "Status", "select", ["Pending", "Paid"]]
+    ["patientId", "Patient ID", "number"], ["amount", "Amount (₹)", "number"], ["description", "Description"], ["status", "Payment status", "select", ["Pending", "Paid"]], ["paymentMethod", "Payment method", "select", ["Not selected", "Cash", "UPI", "Card", "Insurance"]]
   ] },
   medicines: { title: "Pharmacy", icon: "⚕", fields: [
-    ["name", "Medicine name"], ["category", "Category"], ["quantity", "Quantity", "number"], ["unitPrice", "Unit price", "number"]
+    ["name", "Medicine name"], ["category", "Category"], ["quantity", "Quantity", "number"], ["unitPrice", "Unit price (₹)", "number"]
   ] },
   records: { title: "Medical Records", icon: "▧", fields: [
     ["patientId", "Patient ID", "number"], ["doctorId", "Doctor ID", "number"], ["diagnosis", "Diagnosis"], ["prescription", "Prescription"], ["date", "Date", "date"]
@@ -190,8 +190,8 @@ function displayValue(moduleKey, field, value) {
 }
 
 function statusClass(value) {
-  const state = String(value).toLowerCase();
-  return ["pending", "scheduled", "available", "cancelled", "unavailable", "occupied"].includes(state) ? `status ${state}` : "status";
+  const state = String(value).toLowerCase().replace(/\s+/g, "-");
+  return ["pending", "unpaid", "partially-paid", "scheduled", "available", "cancelled", "unavailable", "occupied"].includes(state) ? `status ${state}` : "status";
 }
 
 function renderTable(moduleKey, items, compact = false) {
@@ -202,7 +202,7 @@ function renderTable(moduleKey, items, compact = false) {
   return `<div class="table-wrap"><table><thead><tr>${fields.map(field => `<th>${escapeHtml(field[1])}</th>`).join("")}${showActions ? "<th>Actions</th>" : ""}</tr></thead><tbody>${items.map(item =>
     `<tr>${fields.map(field => {
       const value = displayValue(moduleKey, field[0], item[field[0]]);
-      return `<td>${field[0] === "status" ? `<span class="${statusClass(value)}">${escapeHtml(value)}</span>` : escapeHtml(value)}</td>`;
+      return `<td>${["status", "paymentStatus"].includes(field[0]) ? `<span class="${statusClass(value)}">${escapeHtml(value)}</span>` : escapeHtml(value)}</td>`;
     }).join("")}${showActions ? `<td><div class="actions"><button class="mini-button" data-edit="${item.id}" data-module="${moduleKey}">Edit</button><button class="mini-button delete" data-delete="${item.id}" data-module="${moduleKey}">Delete</button></div></td>` : ""}</tr>`
   ).join("")}</tbody></table></div>`;
 }
@@ -267,7 +267,7 @@ function openForm(moduleKey, id) {
   const existing = id == null ? null : data[moduleKey].find(item => item.id === id);
   if (id != null && !existing) return showToast("Record not found.");
   const fields = module.fields.map(([key, label, type, options]) => {
-    const value = existing?.[key] ?? (key === "status" ? options[0] : "");
+    const value = existing?.[key] ?? (options ? options[0] : existing && moduleKey === "appointments" && key === "amount" ? 0 : "");
     const input = type === "select"
       ? `<select name="${key}" required>${options.map(option => `<option value="${escapeHtml(option)}" ${String(value) === option ? "selected" : ""}>${escapeHtml(option)}</option>`).join("")}</select>`
       : `<input name="${key}" type="${type || "text"}" value="${escapeHtml(value)}" ${key === "amount" || key === "unitPrice" ? 'min="0" step="0.01"' : type === "number" ? 'min="0" step="1"' : ""} required>`;

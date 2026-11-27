@@ -24,9 +24,9 @@ let dummyHash;
 const modules = {
   patients: [["name", "text"], ["age", "integer"], ["gender", "text"], ["phone", "text"], ["address", "text"]],
   doctors: [["name", "text"], ["specialization", "text"], ["phone", "text"]],
-  appointments: [["patientId", "integer"], ["doctorId", "integer"], ["date", "date"], ["time", "time"], ["status", "enum", ["Scheduled", "Completed", "Cancelled"]]],
+  appointments: [["patientId", "integer"], ["doctorId", "integer"], ["date", "date"], ["time", "time"], ["status", "enum", ["Scheduled", "Completed", "Cancelled"]], ["amount", "decimal"], ["paymentStatus", "enum", ["Unpaid", "Partially paid", "Paid"]], ["paymentMethod", "enum", ["Not selected", "Cash", "UPI", "Card", "Insurance"]]],
   beds: [["ward", "text"], ["bedNumber", "text"], ["status", "enum", ["Available", "Occupied"]]],
-  bills: [["patientId", "integer"], ["amount", "decimal"], ["description", "text"], ["status", "enum", ["Pending", "Paid"]]],
+  bills: [["patientId", "integer"], ["amount", "decimal"], ["description", "text"], ["status", "enum", ["Pending", "Paid"]], ["paymentMethod", "enum", ["Not selected", "Cash", "UPI", "Card", "Insurance"]]],
   medicines: [["name", "text"], ["category", "text"], ["quantity", "integer"], ["unitPrice", "decimal"]],
   records: [["patientId", "integer"], ["doctorId", "integer"], ["diagnosis", "text"], ["prescription", "text"], ["date", "date"]],
   staff: [["name", "text"], ["role", "text"], ["department", "text"], ["phone", "text"]]
@@ -400,6 +400,13 @@ function seedDemoRecord(module, record) {
   database.prepare("INSERT INTO records(module, data) VALUES (?, ?)").run(module, JSON.stringify(record));
 }
 
+function seedDemoRecords(module, records) {
+  const existing = database.prepare("SELECT 1 FROM records WHERE module = ? LIMIT 1").get(module);
+  if (existing) return;
+  const insert = database.prepare("INSERT INTO records(module, data) VALUES (?, ?)");
+  for (const record of records) insert.run(module, JSON.stringify(record));
+}
+
 async function seedEmptyDatabase() {
   const adminFullName = String(process.env.ADMIN_FULL_NAME || "").trim();
   const adminUsername = String(process.env.ADMIN_USERNAME || "").trim();
@@ -465,6 +472,12 @@ async function seedEmptyDatabase() {
     specialization: "General Medicine",
     phone: "000-000-0000"
   });
+  seedDemoRecords("medicines", [
+    { name: "Paracetamol tablets", category: "Demo OTC", quantity: 50, unitPrice: 2.5 },
+    { name: "Cetirizine tablets", category: "Demo OTC", quantity: 25, unitPrice: 3 },
+    { name: "ORS sachets", category: "Demo hydration", quantity: 30, unitPrice: 18 },
+    { name: "Antiseptic solution", category: "Demo first aid", quantity: 8, unitPrice: 55 }
+  ]);
 }
 
 async function start() {

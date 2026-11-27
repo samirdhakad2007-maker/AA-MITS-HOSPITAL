@@ -7,6 +7,7 @@ AA.MITS is a hospital-management project with a browser portal and a separate C+
 ### Administrator
 
 - Manage patients, doctors, appointments, rooms and beds, billing, pharmacy, medical records, and staff.
+- Track appointment fees and payment status/method; record billing payment status/method.
 - View registered user accounts.
 - Update the display name shown on the dashboard.
 
@@ -88,7 +89,7 @@ There are no `MONGO_URI`, `JWT_SECRET`, `CLIENT_URL`, or `VITE_API_URL` settings
 
 ### Demo accounts and data
 
-For a demo, use the administrator credentials set in Render's environment variables. If they were not set before the first start, the generated temporary administrator password is printed in the service logs. Anyone can sign up for a standard user account; only configured administrator credentials grant administrator access. Use dummy patient and billing data only.
+For a demo, use the administrator credentials set in Render's environment variables. If they were not set before the first start, the generated temporary administrator password is printed in the service logs. Anyone can sign up for a standard user account; only configured administrator credentials grant administrator access. The pharmacy seeds illustrative sample stock and rupee prices only when empty. Payment fields track status and method only; they do not process transactions. Use dummy patient and billing data only.
 
 Portal accounts and records are saved in `hospital_portal.sqlite`. The C++ console application separately saves to `hospital_data.txt`. Neither local data file should be uploaded to GitHub.
 
